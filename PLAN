@@ -1,0 +1,230 @@
+# VibeStack — V1 Project Plan (Bootstrapped, Deterministic)
+
+## Product
+VibeStack is a public dashboard + weekly newsletter for AI-forward developers:
+“What’s worth adding to my AI stack this week?”
+
+## V1 Constraints (Locked)
+- Single repo, single Postgres DB
+- No microservices, queues, or distributed systems
+- Ingestion every 8 hours (00:00, 08:00, 16:00 UTC)
+- 6 sources only (3 model providers, 2 plugin sources, 1 agent framework ecosystem)
+- No LLM usage in ingestion (deterministic scoring only)
+- No user accounts, no personalization
+- No embeddings, no AI-enriched fields
+- Budget: $25–$100/mo; Maintenance: 1–2 hrs/week after launch
+
+## Success Criteria (V1 Complete)
+- All 6 sources ingest reliably
+- Deduplication works (idempotent runs)
+- Dashboard filtering works
+- Weekly Top 5 email sends automatically
+- Runs unattended for 30 consecutive days
+
+---
+
+# Repository Layout (Target)
+/
+  ui/                # AI Studio UI (already built)
+  server/            # Backend API + serving UI
+  jobs/              # cron-invoked scripts
+  db/                # migrations, schema
+  scripts/           # helper scripts
+  PLAN.md
+  UI_HANDOFF.md
+  .env.example
+  README.md
+
+---
+
+# Milestone 0 — UI Landing (You)
+## Done when
+- UI exists under /ui
+- Local run instructions work
+
+## Deliverables
+- ui/README.md (or root README) with local run commands
+
+---
+
+# Milestone 1 — Backend Skeleton (Codex)
+## Goal
+Single web app serving:
+- /api/* endpoints
+- the UI (static build or dev proxy)
+
+## Tasks
+- [ ] Choose backend runtime (Node+Express or Python+FastAPI). Prefer simplest for you.
+- [ ] Create /server with:
+  - [ ] /api/health (returns {ok:true})
+  - [ ] centralized config loader (.env)
+  - [ ] basic request logging
+  - [ ] error handler
+
+## Acceptance
+- `server` runs locally
+- `GET /api/health` works
+
+---
+
+# Milestone 2 — Database (Codex)
+## Locked Schema
+Table: updates
+- id
+- source_name
+- source_type
+- title
+- url
+- published_at
+- short_description
+- tags
+- internal_score
+- content_hash
+- created_at
+- updated_at
+
+Table: newsletter_sends
+- id
+- week_start
+- week_end
+- sent_at
+- selected_update_ids
+- status
+
+## Tasks
+- [ ] Add migration tooling (minimal)
+- [ ] Create migrations for both tables
+- [ ] Enforce dedupe:
+  - [ ] UNIQUE INDEX on updates.content_hash
+- [ ] Add helpful indexes:
+  - [ ] published_at
+  - [ ] source_name, source_type
+  - [ ] tags (GIN index if Postgres array)
+
+## Acceptance
+- fresh DB can be migrated in one command
+
+---
+
+# Milestone 3 — Updates API (Codex)
+## Contract (must match UI_HANDOFF.md)
+GET /api/updates
+Query params:
+- query (optional)
+- source_type (optional)
+- source_name (optional)
+- tag (optional)
+- sort = new|score (default new)
+- page (default 1)
+- pageSize (default 20)
+
+Response:
+{ items: Update[], page, pageSize, total }
+
+## Tasks
+- [ ] Implement endpoint with:
+  - [ ] filtering + search (title + short_description)
+  - [ ] tag filter
+  - [ ] sorting newest/score
+  - [ ] pagination + total count
+- [ ] Add seed script to insert sample rows for UI testing
+
+## Acceptance
+- UI can render live DB data via this endpoint
+
+---
+
+# Milestone 4 — UI ↔ Backend Integration (Codex)
+## Tasks
+- [ ] Decide integration mode:
+  A) Serve UI build from backend (recommended)
+  B) Proxy UI dev server to backend in dev
+- [ ] Wire UI fetch to /api/updates
+- [ ] Ensure filter controls map to query params
+
+## Acceptance
+- `npm run build` (in ui) + backend serves dashboard correctly
+- Filters and pagination work end-to-end
+
+---
+
+# Milestone 5 — Ingestion Jobs (Codex)
+## Requirements
+- Runs every 8 hours via cron
+- Idempotent
+- Dedup required
+- Partial failure tolerant (one source failure doesn’t kill run)
+- Deterministic scoring only (no LLM)
+
+## Tasks
+- [ ] Implement /jobs/ingest (one-shot run)
+- [ ] Create 6 source fetchers (stubs first, then real):
+  - [ ] OpenAI
+  - [ ] Anthropic
+  - [ ] Google Gemini
+  - [ ] Plugin marketplace
+  - [ ] GitHub-based plugin discovery
+  - [ ] Agent framework ecosystem
+- [ ] Normalize to updates schema
+- [ ] content_hash = stable hash of (source_name + title + url) (or include published_at if needed)
+- [ ] Insert with ON CONFLICT DO NOTHING on content_hash
+- [ ] Log per-source results + errors
+
+## Acceptance
+- Re-running ingest creates no duplicates
+- If one source fails, others still ingest
+
+---
+
+# Milestone 6 — Newsletter Job (Codex)
+## Weekly policy
+- Query last 7 days
+- Order by internal_score desc
+- Select Top 5
+- Render simple HTML email
+- Send via provider API
+- Log in newsletter_sends
+
+## Tasks
+- [ ] Implement /jobs/newsletter (one-shot run)
+- [ ] Add provider integration (SendGrid/Mailgun/etc.)
+- [ ] Record status: success|failed
+- [ ] Prevent double-send: if newsletter_sends exists for that week with success, skip
+
+## Acceptance
+- Running job sends exactly one weekly email and logs it
+
+---
+
+# Milestone 7 — Deployment (Codex)
+## Topology (V1)
+Single VPS:
+- Nginx
+- Web app
+- Postgres
+- Cron
+
+## Tasks
+- [ ] Add:
+  - [ ] systemd service file example
+  - [ ] nginx site config example
+  - [ ] cron entries for ingest + newsletter
+  - [ ] log rotation example
+- [ ] Add README: deploy steps and smoke test checklist
+
+## Acceptance
+- Fresh VPS setup can be done from docs without guessing
+
+---
+
+# Milestone 8 — 30-Day Stability Checklist
+## Tasks
+- [ ] Add basic /api/health DB check
+- [ ] Add structured logs for jobs
+- [ ] Add “last_run” log output for each job
+- [ ] Manual runbook:
+  - [ ] how to view logs
+  - [ ] how to re-run a job safely
+
+## Acceptance
+- You can leave it alone for 30 days and it won’t drift
